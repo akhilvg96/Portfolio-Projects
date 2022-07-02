@@ -1,0 +1,178 @@
+-- *Display Worldwide COVID Cases History*
+
+SELECT location, date, population, total_cases, total_deaths
+FROM covid_deaths
+ORDER BY location, date;
+
+-- *Display Canada's COVID Cases History*
+
+SELECT location, date, population, total_cases, total_deaths, ROUND((total_cases/population)*100,4) AS percentage_pop_with_covid
+FROM covid_deaths
+WHERE location = 'Canada'
+ORDER BY location, date;
+
+-- *Display Canada's COVID Cases Jan 2021 VS Jan 2022*
+	-- NOTE!!!!!!!!!!!!!! Use OR funct. to display two date values
+
+SELECT location, date, total_cases, ROUND((total_cases/population)*100,4) AS percentage_pop_with_covid
+FROM covid_deaths
+WHERE location = 'Canada' AND CAST(date AS VARCHAR) = '2021-01-01'
+	OR location = 'Canada' AND CAST(date AS VARCHAR) LIKE '2022-01-01'
+	
+
+	-- Alternate Method:
+	 --location = 'Canada' AND EXTRACT(MONTH FROM date) = 01 AND EXTRACT(DAY FROM date) = 01 AND EXTRACT(YEAR FROM date) = 2021
+	 --OR location = 'Canada' AND EXTRACT(MONTH FROM date) = 01 AND EXTRACT(DAY FROM date) = 01 AND EXTRACT(YEAR FROM date) = 2022
+	
+ORDER BY location, date;
+
+-- *Compare COVID cases between Canada and The United States for 2022 including deaths*
+
+SELECT location, date, population, total_cases, total_deaths, 
+	ROUND((total_cases/population)*100,4) AS percentage_pop_with_covid, 
+	ROUND((total_deaths/population)*100,4) AS percentage_of_deaths
+FROM covid_deaths
+WHERE EXTRACT(YEAR from date) = 2022 AND location = 'Canada' OR EXTRACT(YEAR from date) = 2022 AND location = 'United States'
+ORDER BY location, date;
+
+-- *Display Total no. of COVID cases for all countries to date*
+
+SELECT location, population, MAX(total_cases) AS max_covid_cases, MAX(total_deaths) AS max_deaths, 
+	MAX(ROUND((total_cases/population)*100,4)) AS percentage_pop_with_covid, 
+	MAX(ROUND((total_deaths/population)*100,4)) AS percentage_of_deaths
+FROM covid_deaths
+GROUP BY 1, 2
+ORDER BY location, population;
+
+-- *COVID cases ranking per country*
+
+SELECT location, population, MAX(total_cases) AS total_covid_cases, MAX((total_cases/population)*100) AS percentage_pop_with_covid
+FROM covid_deaths
+WHERE total_cases != 0 AND continent != ' ' -- To only show countries
+GROUP BY  location, population
+ORDER BY total_covid_cases DESC;
+
+-- *Display Continents With Highest Death Counts*
+
+SELECT continent, SUM(population) as total_population, MAX(cast(total_deaths as int)) as death_count, 
+	MAX(ROUND((total_deaths/population)*100,4)) as percentage_deaths_continent
+FROM covid_deaths
+WHERE total_deaths != 0 AND continent != ' ' -- To only show countries
+GROUP BY  continent
+ORDER BY death_count DESC;
+
+-- *Display covid numbers worldwide*
+
+SELECT SUM(total_cases) as covid_cases_worldwide, SUM(total_deaths) as deaths_worldwide
+FROM covid_deaths
+WHERE total_deaths != 0;
+
+-- *Display covid numbers trend worldwide*
+
+SELECT date, SUM(total_cases) as covid_cases_worldwide, SUM(total_deaths) as deaths_worldwide
+FROM covid_deaths
+WHERE total_deaths != 0
+GROUP BY date
+ORDER BY date;
+
+-- *Display Cumulative Vaccination Numbers*
+
+SELECT dea.continent, dea.location, dea.date, vac.new_vaccinations,
+	SUM(new_vaccinations) OVER (PARTITION BY dea.location ORDER BY dea.date) AS cumulative_vaccinations
+FROM covid_deaths dea
+JOIN covid_vac vac
+ON dea.location = vac.location AND dea.date = vac.date
+WHERE dea.continent != ' '
+ORDER BY location, date;
+
+-- *Display Percentage of Vaccination*
+	-- USING CTE METHOD (Common table Expression)
+
+WITH perc_vac(continent, location, population, date, new_vacciantions, cumulative_vaccinations)
+AS
+(
+SELECT dea.continent, dea.location, dea.population, dea.date, vac.new_vaccinations,
+	SUM(new_vaccinations) OVER (PARTITION BY dea.location ORDER BY dea.date) AS cumulative_vaccinations
+FROM covid_deaths dea
+JOIN covid_vac vac
+ON dea.location = vac.location AND dea.date = vac.date
+WHERE dea.continent != ' '
+ORDER BY location, date
+)
+
+SELECT *, ROUND((cumulative_vaccinations/population)*100,4) as vaccination_percentage
+FROM perc_vac;
+
+-- *Display Total Vaccination % to date*
+
+SELECT dea.continent, dea.location, dea.date, vac.new_vaccinations,
+	SUM(new_vaccinations) OVER (PARTITION BY dea.location ORDER BY dea.date) AS cumulative_vaccinations
+FROM covid_deaths dea
+JOIN covid_vac vac
+ON dea.location = vac.location AND dea.date = vac.date
+WHERE dea.continent != ' '
+ORDER BY location, date;
+
+-- *Display Percentage of Vaccination Per Location*
+	-- USING CTE METHOD (Common table Expression)
+
+WITH perc_vac(continent, location, population, date, new_vacciantions, cumulative_vaccinations)
+AS
+(
+SELECT dea.continent, dea.location, dea.population, dea.date, vac.new_vaccinations,
+	SUM(new_vaccinations) OVER (PARTITION BY dea.location ORDER BY dea.date) AS cumulative_vaccinations
+FROM covid_deaths dea
+JOIN covid_vac vac
+ON dea.location = vac.location AND dea.date = vac.date
+WHERE dea.continent != ' '
+ORDER BY location, date
+)
+
+SELECT continent, location, MAX(cumulative_vaccinations) as total_vaccinations, 
+	MAX(ROUND((cumulative_vaccinations/population)*100,4)) as vaccination_percentage
+FROM perc_vac
+WHERE cumulative_vaccinations != 0 AND population != 0
+GROUP BY 1,2
+ORDER BY vaccination_percentage DESC;
+
+-- *Display Percentage of Vaccination Per Location*
+	-- USING **TEMP TABLE** METHOD
+	
+DROP TABLE IF exists perc_vac;	
+CREATE TABLE perc_vac
+(
+	continent TEXT,
+	location TEXT,
+	population NUMERIC,
+	date DATE,
+	new_vaccinations NUMERIC,
+	cumulative_vaccinations NUMERIC
+);
+
+INSERT INTO perc_vac
+SELECT dea.continent, dea.location, dea.population, dea.date, vac.new_vaccinations, 
+	SUM(new_vaccinations) OVER (PARTITION BY dea.location ORDER BY dea.date) AS cumulative_vaccinations
+FROM covid_deaths dea
+JOIN covid_vac vac
+ON dea.location = vac.location AND dea.date = vac.date
+WHERE dea.continent != ' ' 
+ORDER BY 1,2,4;
+
+SELECT *, ROUND((cumulative_vaccinations/population)*100,4) AS perc_vaccinated
+FROM perc_vac
+--WHERE cumulative_vaccinations != 0 AND population != 0
+GROUP BY continent, location, date, population, new_vaccinations, cumulative_vaccinations
+ORDER BY continent, location, date;
+
+-- *Creating VIEWS for Later Visualization*
+
+DROP TABLE IF exists perc_vac;	
+CREATE VIEW perc_vac AS
+SELECT dea.continent, dea.location, dea.population, dea.date, vac.new_vaccinations, 
+	SUM(new_vaccinations) OVER (PARTITION BY dea.location ORDER BY dea.date) AS cumulative_vaccinations
+FROM covid_deaths dea
+JOIN covid_vac vac
+ON dea.location = vac.location AND dea.date = vac.date
+WHERE dea.continent != ' ' 
+ORDER BY 1,2,4;
+
